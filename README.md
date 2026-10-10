@@ -25,11 +25,11 @@ Os recursos automáticos são implementados por software; não equivalem ao Righ
 
 ## Instalar o pacote Debian
 
-Na página de [releases](https://github.com/caiolombello/enquadra/releases/tag/v0.1.0-alpha.1), baixe `enquadra_0.1.0~alpha1_all.deb` e `SHA256SUMS` da mesma versão. No diretório dos downloads:
+Na página de [releases](https://github.com/caiolombello/enquadra/releases/tag/v0.1.0-alpha.1), baixe `enquadra_0.1.0.alpha1_all.deb` e `SHA256SUMS` da mesma versão. No diretório dos downloads:
 
 ```sh
 sha256sum --check SHA256SUMS
-sudo apt install ./enquadra_0.1.0~alpha1_all.deb
+sudo apt install ./enquadra_0.1.0.alpha1_all.deb
 enquadra
 ```
 
