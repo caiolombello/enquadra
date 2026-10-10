@@ -1,0 +1,105 @@
+#!/bin/sh
+# Explicit administrator action; never called during application startup.
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+LC_ALL=C
+export LC_ALL
+
+fail() { printf '%s\n' "Enquadra: $*" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || fail 'A configuração requer autenticação de administrador.'
+[ -r /etc/os-release ] || fail 'Sistema operacional não identificado.'
+. /etc/os-release
+case "${ID:-}" in
+    ubuntu|debian) ;;
+    *) fail 'A instalação automática está disponível para Ubuntu e Debian com APT.' ;;
+esac
+kernel_release=$(uname -r)
+[ -d "/lib/modules/$kernel_release/build" ] || fail "Instale os headers do kernel $kernel_release antes de continuar."
+secure_boot=unknown
+if command -v mokutil >/dev/null 2>&1; then
+    case "$(mokutil --sb-state 2>/dev/null || true)" in
+        *'SecureBoot enabled'*) secure_boot=enabled ;;
+        *'SecureBoot disabled'*) secure_boot=disabled ;;
+    esac
+fi
+
+module_conf=/etc/modprobe.d/enquadra.conf
+boot_conf=/etc/modules-load.d/enquadra.conf
+card_label=Enquadra
+module_options='options v4l2loopback devices=1 video_nr=10 card_label="Enquadra" exclusive_caps=1'
+legacy_options='options v4l2loopback devices=1 video_nr=10 card_label="Brio Control" exclusive_caps=1'
+
+check_config() {
+    path=$1
+    expected=$2
+    [ ! -L "$path" ] || fail "Não vou substituir o link simbólico $path."
+    if [ -e "$path" ]; then
+        [ -f "$path" ] || fail "$path não é um arquivo regular."
+        [ "$(stat -c '%u:%a' "$path")" = '0:644' ] || fail "$path precisa pertencer ao administrador e ter permissão 644."
+        [ "$(cat "$path")" = "$expected" ] || fail "Já existe uma configuração diferente em $path. Preserve-a e resolva o conflito antes de continuar."
+    fi
+}
+# Preserve the exact previous application-owned configuration and its label.
+if [ -e /etc/modprobe.d/brio-control.conf ] || [ -L /etc/modprobe.d/brio-control.conf ] ||
+   [ -e /etc/modules-load.d/brio-control.conf ] || [ -L /etc/modules-load.d/brio-control.conf ]; then
+    [ ! -e "$module_conf" ] && [ ! -L "$module_conf" ] &&
+        [ ! -e "$boot_conf" ] && [ ! -L "$boot_conf" ] || fail 'Há configurações Enquadra e Brio Control simultâneas; resolva o conflito sem interromper suas câmeras.'
+    module_conf=/etc/modprobe.d/brio-control.conf
+    boot_conf=/etc/modules-load.d/brio-control.conf
+    module_options=$legacy_options
+    card_label='Brio Control'
+fi
+check_config "$module_conf" "$module_options"
+check_config "$boot_conf" 'v4l2loopback'
+for path in /etc/modprobe.d/*.conf /etc/modules-load.d/*.conf; do
+    [ -f "$path" ] || continue
+    [ "$path" = "$module_conf" ] && continue
+    [ "$path" = "$boot_conf" ] && continue
+    if sed 's/#.*//' "$path" | grep -Eq '(^|[[:space:]])v4l2loopback([[:space:]]|$)'; then
+        fail "Existe outra configuração de v4l2loopback em $path. Não vou alterar seu carregamento."
+    fi
+done
+if [ -e /dev/video10 ]; then
+    [ -f "$module_conf" ] && [ -f "$boot_conf" ] || fail 'O dispositivo existente não tem a configuração conhecida do aplicativo; não vou assumir sua propriedade.'
+    [ "$(cat /sys/class/video4linux/video10/name 2>/dev/null || true)" = "$card_label" ] || fail '/dev/video10 já pertence a outro dispositivo.'
+    [ -d /sys/devices/virtual/video4linux/video10 ] && [ -d /sys/module/v4l2loopback ] || fail '/dev/video10 não é a saída virtual esperada.'
+    command -v v4l2-ctl >/dev/null 2>&1 || fail 'Instale v4l-utils para confirmar o driver da saída existente.'
+    driver=$(v4l2-ctl --device /dev/video10 --info | awk -F ': ' '/Driver name/ {print $2}')
+    [ "$driver" = 'v4l2 loopback' ] || fail '/dev/video10 não usa o driver v4l2loopback.'
+    [ "$(cat /sys/module/v4l2loopback/parameters/video_nr)" = '10,-1,-1,-1,-1,-1,-1,-1' ] || fail 'O módulo existente possui outra configuração de dispositivos; não vou modificar seu carregamento.'
+    case "$(cat /sys/module/v4l2loopback/parameters/exclusive_caps)" in
+        Y,*) ;;
+        *) fail 'O módulo existente não foi carregado com exclusive_caps=1. Resolva sua configuração explicitamente antes de continuar.' ;;
+    esac
+elif [ -d /sys/module/v4l2loopback ]; then
+    fail 'v4l2loopback já está carregado com outra configuração. Não vou interromper os dispositivos existentes.'
+fi
+
+printf '%s\n' 'Instalando v4l2loopback e suas ferramentas pelo APT...'
+DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-remove v4l2loopback-dkms v4l2loopback-utils v4l-utils
+if ! modprobe v4l2loopback devices=1 video_nr=10 "card_label=$card_label" exclusive_caps=1; then
+    if [ "$secure_boot" = enabled ]; then
+        fail 'Não foi possível carregar v4l2loopback com Secure Boot ativo. Confira a assinatura do módulo DKMS e conclua o cadastro da chave MOK conforme as instruções da distribuição; pode ser necessário reiniciar. Secure Boot foi preservado.'
+    fi
+    fail "Não foi possível carregar v4l2loopback para $kernel_release. Confira o build DKMS e os logs do kernel. Se houver rejeição de chave, conclua o cadastro MOK da distribuição."
+fi
+udevadm settle --timeout=10
+[ -c /dev/video10 ] || fail 'O módulo carregou, mas /dev/video10 não foi criado.'
+[ "$(cat /sys/class/video4linux/video10/name)" = "$card_label" ] || fail 'O dispositivo criado não tem o nome esperado.'
+driver=$(v4l2-ctl --device /dev/video10 --info | awk -F ': ' '/Driver name/ {print $2}')
+[ "$driver" = 'v4l2 loopback' ] || fail 'O driver da saída criada não é v4l2loopback.'
+
+write_config() {
+    target=$1
+    content=$2
+    [ -e "$target" ] && return 0
+    install -d -o root -g root -m 755 "$(dirname "$target")"
+    temporary=$(mktemp "$(dirname "$target")/.enquadra.XXXXXX")
+    printf '%s\n' "$content" > "$temporary"
+    chmod 644 "$temporary"
+    mv -- "$temporary" "$target"
+}
+write_config "$module_conf" "$module_options"
+write_config "$boot_conf" 'v4l2loopback'
+printf '%s\n' "Câmera virtual $card_label disponível em /dev/video10; carregamento configurado para o próximo boot."

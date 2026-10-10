@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://caiolombello.github.io/enquadra/sitemap.xml

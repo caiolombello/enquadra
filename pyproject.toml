@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enquadra"
+version = "0.1.0a1"
+description = "Local camera framing, backgrounds and controls for Linux"
+authors = [{name = "Caio Lombello"}]
+requires-python = ">=3.12"
+license = {text = "LGPL-3.0-or-later"}
+
+[project.urls]
+Homepage = "https://caiolombello.github.io/enquadra/"
+Repository = "https://github.com/caiolombello/enquadra"
+Issues = "https://github.com/caiolombello/enquadra/issues"
+
+[project.scripts]
+enquadra = "brio_control.__main__:main"
+brio-control = "brio_control.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["brio_control*"]
+
+[tool.setuptools.package-data]
+brio_control = ["models/*.onnx", "models/LICENSE", "models/pphumanseg/*.onnx", "models/pphumanseg/LICENSE"]

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+runtime_root="$root_dir/.runtime/root"
+if [[ -d "$runtime_root/usr/lib/python3/dist-packages" ]]; then
+  export PYTHONPATH="$runtime_root/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+fi
+if [[ -d "$runtime_root/usr/lib" ]]; then
+  export LD_LIBRARY_PATH="$runtime_root/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+if [[ -d "$runtime_root/usr/lib/x86_64-linux-gnu" ]]; then
+  export LD_LIBRARY_PATH="$runtime_root/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+if [[ -d "$runtime_root/usr/lib/x86_64-linux-gnu/girepository-1.0" ]]; then
+  export GI_TYPELIB_PATH="$runtime_root/usr/lib/x86_64-linux-gnu/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+fi
+export PYTHONPATH="$root_dir${PYTHONPATH:+:$PYTHONPATH}"
+cd "$root_dir"
+exec python3 -m brio_control "$@"

@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Test and package (Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi python3-numpy python3-opencv gir1.2-gtk-4.0 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good xvfb dbus-x11 fonts-dejavu-core
+      - name: Check Python, shell and website
+        run: |
+          /usr/bin/python3 -m compileall -q brio_control scripts
+          bash -n scripts/run-local scripts/setup-virtual-camera
+          node --check docs/assets/site.js
+          /usr/bin/python3 scripts/check_site.py
+      - name: Run tests with synthetic video and a private session bus
+        env:
+          GTK_A11Y: none
+          GIO_USE_VFS: local
+          GTK_USE_PORTAL: '0'
+        run: xvfb-run -a dbus-run-session /usr/bin/python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Build Debian package
+        run: /usr/bin/python3 scripts/build_deb.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: enquadra-deb
+          path: dist/enquadra_*.deb
+          compression-level: 0
+          retention-days: 7
